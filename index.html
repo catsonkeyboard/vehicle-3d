@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D小车游戏</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        #info h2 {
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h2>3D小车游戏</h2>
+        <p>W - 前进</p>
+        <p>S - 后退</p>
+        <p>A - 左转</p>
+        <p>D - 右转</p>
+        <p>空格 - 刹车</p>
+    </div>
+
+    <!-- 引入Three.js -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // 场景、相机、渲染器设置
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 50, 200);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 15, 25);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // 光照
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(50, 50, 50);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.left = -50;
+        directionalLight.shadow.camera.right = 50;
+        directionalLight.shadow.camera.top = 50;
+        directionalLight.shadow.camera.bottom = -50;
+        scene.add(directionalLight);
+
+        // 创建地面
+        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        const groundMaterial = new THREE.MeshStandardMaterial({
+            color: 0x4a7c3c,
+            roughness: 0.8,
+            metalness: 0.2
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // 添加网格辅助线
+        const gridHelper = new THREE.GridHelper(200, 40, 0x000000, 0x000000);
+        gridHelper.material.opacity = 0.1;
+        gridHelper.material.transparent = true;
+        scene.add(gridHelper);
+
+        // 创建小车（多边体模型）
+        const carGroup = new THREE.Group();
+
+        // 车身（主体 - 梯形）
+        const bodyGeometry = new THREE.BoxGeometry(3, 1.2, 5);
+        const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xff4444 });
+        const carBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        carBody.position.y = 1;
+        carBody.castShadow = true;
+        carGroup.add(carBody);
+
+        // 车顶
+        const roofGeometry = new THREE.BoxGeometry(2.5, 0.8, 3);
+        const roofMaterial = new THREE.MeshStandardMaterial({ color: 0xcc0000 });
+        const carRoof = new THREE.Mesh(roofGeometry, roofMaterial);
+        carRoof.position.y = 2;
+        carRoof.castShadow = true;
+        carGroup.add(carRoof);
+
+        // 车窗（前后左右）
+        const windowMaterial = new THREE.MeshStandardMaterial({
+            color: 0x4444ff,
+            transparent: true,
+            opacity: 0.6
+        });
+
+        const windowGeometry = new THREE.PlaneGeometry(2, 0.6);
+        const frontWindow = new THREE.Mesh(windowGeometry, windowMaterial);
+        frontWindow.position.set(0, 2, 1.51);
+        carGroup.add(frontWindow);
+
+        const backWindow = new THREE.Mesh(windowGeometry, windowMaterial);
+        backWindow.position.set(0, 2, -1.51);
+        backWindow.rotation.y = Math.PI;
+        carGroup.add(backWindow);
+
+        // 创建轮子
+        const wheelGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.3, 16);
+        const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
+
+        const wheels = [];
+        const wheelPositions = [
+            { x: -1.5, y: 0.5, z: 1.8 },
+            { x: 1.5, y: 0.5, z: 1.8 },
+            { x: -1.5, y: 0.5, z: -1.8 },
+            { x: 1.5, y: 0.5, z: -1.8 }
+        ];
+
+        wheelPositions.forEach(pos => {
+            const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            wheel.rotation.z = Math.PI / 2;
+            wheel.position.set(pos.x, pos.y, pos.z);
+            wheel.castShadow = true;
+            carGroup.add(wheel);
+            wheels.push(wheel);
+        });
+
+        scene.add(carGroup);
+        carGroup.position.y = 0.5;
+
+        // 创建树木函数
+        function createTree(x, z) {
+            const treeGroup = new THREE.Group();
+
+            // 树干
+            const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.4, 4, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 2;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+
+            // 树冠（多层）
+            const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22 });
+
+            const foliage1 = new THREE.Mesh(
+                new THREE.ConeGeometry(2, 3, 8),
+                foliageMaterial
+            );
+            foliage1.position.y = 5;
+            foliage1.castShadow = true;
+            treeGroup.add(foliage1);
+
+            const foliage2 = new THREE.Mesh(
+                new THREE.ConeGeometry(1.5, 2.5, 8),
+                foliageMaterial
+            );
+            foliage2.position.y = 6.5;
+            foliage2.castShadow = true;
+            treeGroup.add(foliage2);
+
+            treeGroup.position.set(x, 0, z);
+            scene.add(treeGroup);
+
+            return treeGroup;
+        }
+
+        // 添加树木到场景
+        const trees = [];
+        const treePositions = [
+            [-20, -20], [20, -20], [-20, 20], [25, 25],
+            [-30, 0], [30, 0], [0, -30], [0, 30],
+            [-15, 15], [15, -15], [-25, -10], [28, 12],
+            [-10, -25], [12, 28], [-35, 20], [35, -20]
+        ];
+
+        treePositions.forEach(([x, z]) => {
+            trees.push(createTree(x, z));
+        });
+
+        // 物理系统（简单实现）
+        class PhysicsObject {
+            constructor(mesh) {
+                this.mesh = mesh;
+                this.velocity = new THREE.Vector3(0, 0, 0);
+                this.acceleration = new THREE.Vector3(0, 0, 0);
+                this.mass = 1;
+                this.friction = 0.95;
+                this.angularVelocity = 0;
+            }
+
+            applyForce(force) {
+                const f = force.clone().divideScalar(this.mass);
+                this.acceleration.add(f);
+            }
+
+            update(deltaTime) {
+                this.velocity.add(this.acceleration.clone().multiplyScalar(deltaTime));
+                this.velocity.multiplyScalar(this.friction);
+
+                this.mesh.position.add(this.velocity.clone().multiplyScalar(deltaTime));
+
+                this.mesh.rotation.y += this.angularVelocity * deltaTime;
+                this.angularVelocity *= 0.85;
+
+                this.acceleration.set(0, 0, 0);
+            }
+
+            checkCollision(object, minDistance) {
+                const distance = this.mesh.position.distanceTo(object.position);
+                if (distance < minDistance) {
+                    const direction = new THREE.Vector3()
+                        .subVectors(this.mesh.position, object.position)
+                        .normalize();
+
+                    this.mesh.position.copy(
+                        object.position.clone().add(direction.multiplyScalar(minDistance))
+                    );
+
+                    this.velocity.multiplyScalar(-0.3);
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        const carPhysics = new PhysicsObject(carGroup);
+        carPhysics.mass = 5;
+        carPhysics.friction = 0.96;
+
+        // 键盘控制
+        const keys = {};
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        // 车辆控制参数
+        const carControls = {
+            acceleration: 200,
+            turnSpeed: 4.5,
+            maxSpeed: 80,
+            brakeForce: 0.80
+        };
+
+        // 游戏循环
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const deltaTime = clock.getDelta();
+
+            // 车辆控制
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(carGroup.quaternion);
+
+            if (keys['w']) {
+                const force = forward.multiplyScalar(carControls.acceleration);
+                carPhysics.applyForce(force);
+            }
+
+            if (keys['s']) {
+                const force = forward.multiplyScalar(-carControls.acceleration * 0.7);
+                carPhysics.applyForce(force);
+            }
+
+            if (keys['a']) {
+                carPhysics.angularVelocity += carControls.turnSpeed * deltaTime;
+            }
+
+            if (keys['d']) {
+                carPhysics.angularVelocity -= carControls.turnSpeed * deltaTime;
+            }
+
+            if (keys[' ']) {
+                carPhysics.velocity.multiplyScalar(carControls.brakeForce);
+            }
+
+            // 限制最大速度
+            const speed = carPhysics.velocity.length();
+            if (speed > carControls.maxSpeed) {
+                carPhysics.velocity.normalize().multiplyScalar(carControls.maxSpeed);
+            }
+
+            // 更新物理
+            carPhysics.update(deltaTime);
+
+            // 碰撞检测（与树木）
+            trees.forEach(tree => {
+                carPhysics.checkCollision(tree, 3);
+            });
+
+            // 边界检测
+            const boundary = 95;
+            if (Math.abs(carGroup.position.x) > boundary) {
+                carGroup.position.x = Math.sign(carGroup.position.x) * boundary;
+                carPhysics.velocity.x *= -0.3;
+            }
+            if (Math.abs(carGroup.position.z) > boundary) {
+                carGroup.position.z = Math.sign(carGroup.position.z) * boundary;
+                carPhysics.velocity.z *= -0.3;
+            }
+
+            // 车轮旋转动画
+            const wheelRotationSpeed = speed * 0.1;
+            wheels.forEach((wheel, index) => {
+                wheel.rotation.x += wheelRotationSpeed * deltaTime;
+            });
+
+            // 相机跟随
+            const idealOffset = new THREE.Vector3(0, 10, 18);
+            idealOffset.applyQuaternion(carGroup.quaternion);
+
+            const idealPosition = carGroup.position.clone().add(idealOffset);
+            camera.position.lerp(idealPosition, 0.15);
+
+            const lookAtPosition = carGroup.position.clone();
+            lookAtPosition.y += 2;
+            camera.lookAt(lookAtPosition);
+
+            renderer.render(scene, camera);
+        }
+
+        // 窗口大小调整
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // 启动动画循环
+        animate();
+    </script>
+</body>
+</html>
